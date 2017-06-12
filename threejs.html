@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>CreateImageBitmap</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+		<style>
+*{ box-sizing: border-box; margin: 0; padding: 0; }
+#container{ position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+#fps{ position: absolute; left: 0; top: 0; padding: 5px; color: #00ff00; background-color: black; z-index: 100 }
+		</style>
+
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="fps" ></div>
+
+		<script src="js/three.js"></script>
+		<script src="js/OrbitControls.js"></script>
+
+<script>
+
+'use strict';
+
+var renderer, camera, controls, scene;
+var container = document.getElementById( 'container' );
+
+var frames = 0;
+var startTime = 0;
+var fps = document.getElementById( 'fps' );
+
+function addPlane( tex ) {
+
+	let a = ( tex.image.naturalHeight || tex.image.height ) / ( tex.image.naturalWidth || tex.image.width );
+
+	var plane = new THREE.Mesh(
+		new THREE.PlaneBufferGeometry( 1, a ),
+		new THREE.MeshBasicMaterial(
+			{
+				map: tex,
+				transparent: true
+			}
+		)
+	);
+
+	scene.add( plane );
+
+}
+
+class JobManager {
+
+	constructor ( worker ) {
+
+		this.count = 0;
+		this.worker = worker;
+		this.map = new Map();
+		this.handlers = {}
+
+		this.worker.onmessage = evt => {
+			let handler = this.handlers[ evt.data.message ];
+			if( handler ) {
+				let job = this.map.get( evt.data.id );
+				let dispose = handler( evt.data, job );
+				if( dispose ) this.dispose( job );
+			}
+		}
+
+	}
+
+	addEvent ( id, fn ) {
+
+		this.handlers[ id ] = fn;
+
+	}
+
+	post ( message ) {
+
+		let id = ++this.count;
+
+		let resolveFn;
+		let rejectFn;
+
+		const promise = new Promise( ( resolve, reject ) => {
+			resolveFn = resolve;
+			rejectFn = reject
+		});
+
+		this.map.set( id, {
+			message: message,
+			resolve: resolveFn,
+			reject: rejectFn
+		});
+
+		this.worker.postMessage( { id: id, message: message } );
+
+		return promise;
+
+	}
+
+	dispose ( job ) {
+
+		this.map.delete( job.id );
+
+	}
+
+}
+
+const jobMgr = new JobManager( new Worker( 'js/offthread-img-worker.js' ) );
+jobMgr.addEvent( 'image', ( res, job ) => {
+	job.resolve( res.imageBitmap );
+	return true;
+} );
+jobMgr.addEvent( 'error', ( res, job ) => {
+	console.log( res );
+	return false;
+} );
+
+function initScene() {
+
+	// w.jpg	167ms Image Decode, 256ms texImage2D
+	// w2.jpg	671.64ms Image Decode, 1.39s texImage2D
+
+	/*var texture = new THREE.TextureLoader().load( 'w2.jpg', tex => {
+		addPlane( tex );
+	} );*/
+
+	// w.jpg	texImage2D 87ms
+	// w2.jpg	texImage2D 674.44ms
+
+	fetch('w2.jpg')
+	.then(function(response) {
+		return response.blob();
+	})
+	.then(function( blobData ) {
+		let i = createImageBitmap( blobData, { imageOrientation: 'flipY'} );
+		return i;
+	})
+	.then( i => {
+		let t = new THREE.Texture( i );
+		t.needsUpdate = true;
+		addPlane( t )
+	});
+
+	// w.jpg	texImage2D 84ms
+	// w2.jpg	texImage2D 734ms
+
+	/*jobMgr.post( '/w2.jpg' ).then( i => {
+		let t = new THREE.Texture( i );
+		t.needsUpdate = true;
+		addPlane( t )
+	});*/
+
+}
+
+function init() {
+
+	container = document.getElementById( 'container' );
+
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, .0001, 100 );
+	camera.target = new THREE.Vector3( 0, 0, 0 );
+	camera.position.set( 0, 0, 1 );
+	camera.lookAt( camera.target );
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: !true } );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor( 0xff00ff, 1 );
+	container.appendChild( renderer.domElement );
+
+	initScene();
+
+	renderer.render( scene, camera );
+
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+	onWindowResized();
+
+	window.addEventListener( 'resize', onWindowResized );
+
+	startTime = performance.now();
+	animate();
+
+}
+
+function onWindowResized( event ) {
+
+	var w = container.clientWidth;
+	var h = container.clientHeight;
+
+	renderer.setSize( w, h );
+	camera.aspect = w / h;
+	camera.updateProjectionMatrix();
+
+}
+
+function animate() {
+
+	window.requestAnimationFrame( animate );
+
+	controls.update();
+
+	renderer.render( scene, camera );
+
+	frames++;
+
+	var t = performance.now();
+	var et = t - startTime;
+	if( et > 1000 ) {
+		fps.textContent = ( frames * et / 1000 ).toFixed( 2 );
+		frames = 0;
+		startTime = t;
+	}
+
+}
+
+init();
+
+</script>
+
+	</body>
+</html>

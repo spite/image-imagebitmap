@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>Image</title>
+		<meta charset="utf-8">
+	</head>
+	<body>
+
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Slab" rel="stylesheet">
+
+<style>
+*{ box-sizing: border-box; margin: 0; padding: 0; }
+#container{ position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+#fps{ position: absolute; left: 0; top: 0; padding: 5px; color: #00ff00; background-color: black; z-index: 100 }
+.actions{ display: flex; flex-flow: row;}
+.actions a{  }
+canvas{ width: 100px; padding :2px	; }
+</style>
+
+	<div id="fps" ></div>
+	<div id="container" ></div>
+	<div class="actions">
+		<a href="#" data-method="clear" id="clear" >clear</a>
+		<a href="#" data-method="loadImage" id="mode1" >img.src + img.onload</a>
+		<a href="#" data-method="fetchImage" id="mode2" >fetch + imagebitmap + canvas.drawImage</a>
+	</div>
+
+<script>
+
+'use strict';
+
+var frames = 0;
+var startTime = 0;
+var fps = document.getElementById( 'fps' );
+var container = document.getElementById( 'container' );
+var prevFrameTime;
+
+var fileName = 'w2.jpg';
+
+if( !window.performance.mark ) {
+	window.performance.mark = function(){}
+}
+
+if( !window.performance.measure ) {
+	window.performance.measure = function(){}
+}
+
+function clear () {
+
+	while( container.firstChild ) container.removeChild( container.firstChild );
+
+}
+
+function loadImage () {
+
+	var img = new Image();
+	img.onload = function() {
+		container.appendChild( img );
+	}
+	img.src = fileName;
+
+}
+
+function fetchImage () {
+
+	fetch( fileName )
+		.then( res => res.blob() )
+		.then( res => createImageBitmap( res ) )
+		.then( res => {
+			var canvas = document.createElement( 'canvas' );
+			canvas.width = res.width;
+			canvas.height = res.height;
+			canvas.getContext( '2d' ).drawImage( res, 0, 0 );
+			container.appendChild( canvas );
+			res.close();
+		} )
+
+}
+
+function loop () {
+
+	//console.timeEnd( 'rAF' );
+	performance.mark( 'end' );
+	performance.measure( 'rAF', 'start', 'end' );
+
+	frames++;
+
+	var t = performance.now();
+	var et = t - startTime;
+	//console.log( t - prevFrameTime );
+
+	if( et > 1000 ) {
+		fps.textContent = ( frames * et / 1000 ).toFixed( 2 );
+		frames = 0;
+		startTime = t;
+	}
+
+	prevFrameTime = t;
+	//console.time( 'rAF' );
+	performance.mark( 'start' );
+
+	requestAnimationFrame( loop );
+}
+
+var methods = document.querySelectorAll( '[data-method]' );
+
+methods.forEach( m => {
+	m.addEventListener( 'click', e => {
+		window[ m.getAttribute( 'data-method' ) ]();
+	});
+})
+
+performance.mark( 'start' );
+
+loop();
+
+async function detect () {
+
+	if( !( 'createImageBitmap' in window ) ) {
+		console.log( 'nay (no API)' );
+		return false;
+	}
+
+	var canvas = document.createElement( 'canvas' );
+	canvas.width = 1;
+	canvas.height = 2;
+	var ctx = canvas.getContext( '2d' );
+
+	var data = ctx.getImageData( 0, 0, 1, 2 );
+	data.data[ 1 ] = 255;
+	data.data[ 3 ] = 255;
+	data.data[ 4 ] = 255;
+	data.data[ 6 ] = 255;
+	data.data[ 7 ] = 255;
+	ctx.putImageData( data, 0, 0 );
+
+	var imageBitmap = await createImageBitmap( canvas, 0, 0, 1, 2, { imageOrientation: 'flipY'} );
+
+	var canvasTest = document.createElement( 'canvas' );
+	canvasTest.width = 1;
+	canvasTest.height = 2;
+	var ctxTest = canvasTest.getContext( '2d' );
+	ctxTest.drawImage( imageBitmap, 0, 0 )
+	var dataTest = ctxTest.getImageData( 0, 0, 1, 2 );
+	if( dataTest.data[ 0 ] === 255 && dataTest.data[ 1 ] === 0 && dataTest.data[ 2 ] === 255 ) return true;
+	else return false;
+	document.body.appendChild( canvasTest );
+
+	document.body.appendChild( canvas );
+
+	return false;
+
+}
+
+let res = detect();
+console.log( res );
+
+</script>
+
+	</body>
+</html>
